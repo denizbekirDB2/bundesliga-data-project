@@ -3,18 +3,42 @@ import os
 from pathlib import Path
 from pprint import pprint
 
-def count_files(league, season):
-    path = str(Path(__file__).parent.parent) + f"/data/{league}/{season}"
-    files = os.listdir(path)
+#W/D/L G/GA/GD Points
+class Team():
 
-    num_files = sum(1 for f in files if os.path.isfile(os.path.join(path, f)))
-    print(num_files)
+    def __init__(self, name, id):
+        self.name = name
+        self.id = id
+        self.wins = 0
+        self.draws = 0
+        self.defeats = 0
+        self.goals = 0
+        self.goals_against = 0
+        self.goal_difference = 0
+        self.points = 0
 
-def get_files(league, season):
-    path = str(Path(__file__).parent.parent) + f"/data/{league}/{season}"
-    files = os.listdir(path)
+    def update(self):
+        self.goal_difference = self.goals - self.goals_against
+        self.points = self.wins * 3 + self.draws
 
-    return files
+    def add_win(self):
+        self.wins += 1
+
+    def add_draw(self):
+        self.draws += 1
+
+    def add_defeat(self):
+        self.defeats += 1
+
+    def add_goals(self, goals):
+        self.goals += goals
+
+    def add_goals_against(self, goals_against):
+        self.goals_against += goals_against
+
+    def __str__(self):
+        result = f"| {self.name:<26} | {self.wins:>2} | {self.draws:>2} | {self.defeats:>2} | {self.goals:>3} | {self.goals_against:>3} | {self.goal_difference:>3} | {self.points:>3} |"
+        return result
 
 def read_json_file(filepath):
     with open(filepath) as f:
@@ -25,64 +49,60 @@ def get_match_day(league, season, match_day):
     path = str(Path(__file__).parent.parent) + f"/data/{league}/{season}/{match_day}.json"
     return read_json_file(path)
 
-# (teamId, teamName)
-def get_all_teams(match_day_json):
-    all_teams = []
+def init_teams(match_day_json):
+    teams = {}
     for match in match_day_json:
-        team1 = (match["team1"]["teamId"],match["team1"]["teamName"])
-        team2 = (match["team2"]["teamId"],match["team2"]["teamName"])
+        teams[match["team1"]["teamId"]] = (Team(match["team1"]["teamName"], match["team1"]["teamId"]))
+        teams[match["team2"]["teamId"]] = (Team(match["team2"]["teamName"], match["team2"]["teamId"]))
 
-        all_teams.append(team1)
-        all_teams.append(team2)
+    return teams
 
-    return sorted(
-        all_teams, key=lambda x: x[1]
-    )
-
-def points_and_goals(match_day_json):
-    points = {}
-    goals = {}
+def set_result(match_day_json, teams):
 
     for match in match_day_json:
         endresult = match["matchResults"][1]
+        team1Id = match["team1"]["teamId"]
+        team2Id = match["team2"]["teamId"]
+
+        teams[team1Id].add_goals(endresult["pointsTeam1"])
+        teams[team1Id].add_goals_against(endresult["pointsTeam2"])
+
+        teams[team2Id].add_goals(endresult["pointsTeam2"])
+        teams[team2Id].add_goals_against(endresult["pointsTeam1"])
+
         if endresult["pointsTeam1"] > endresult["pointsTeam2"]: # team1 win
-            points[match["team1"]["teamId"]] = 3
-            points[match["team2"]["teamId"]] = 0
+            teams[team1Id].add_win()
+            teams[team2Id].add_defeat()
+
         elif endresult["pointsTeam1"] < endresult["pointsTeam2"]: # team2 win
-            points[match["team1"]["teamId"]] = 0
-            points[match["team2"]["teamId"]] = 3
+            teams[team1Id].add_defeat()
+            teams[team2Id].add_win()  
         else:
-            points[match["team1"]["teamId"]] = 1
-            points[match["team2"]["teamId"]] = 1
+            teams[team1Id].add_draw()
+            teams[team2Id].add_draw()
 
-        goals[match["team1"]["teamId"]] = endresult["pointsTeam1"]
-        goals[match["team2"]["teamId"]] = endresult["pointsTeam2"]
+    return teams
 
-    return points, goals
+def table_of_matchday(league, season, match_day):
+    teams = init_teams(get_match_day(league, season, match_day))
 
-def table_match_day_x(league, season, match_days):
-    table = {}
-    all_teams = get_all_teams(get_match_day(league, season, 1))
-    for team in all_teams:
-        table[team[0]] = {"points":0,"goals":0}
+    for day in range(1,match_day+1):
+        match_day_json = get_match_day(league, season, day)
+        set_result(match_day_json, teams)
 
-    for match_day in range(1, match_days + 1):
-        match_day_json = get_match_day(league, season, match_day)
-        points, goals = points_and_goals(match_day_json)
+    for value in teams.values():
+        value.update()
 
-        for keys, values in points.items():
-            table[keys]["points"] = table[keys]["points"] + values
+    sorted_teams = {k: v for k,v in sorted(teams.items(), key = lambda item: (item[1].points, item[1].goal_difference, item[1].goals), reverse=True)}
 
+    return sorted_teams
 
-        for keys, values in goals.items():
-            table[keys]["goals"] = table[keys]["goals"] + values
-
-    return table
-
-#todo W/D/L G/GA/GD Points
+def print_table(table):
+    for value, i in zip(table.values(),range(1, len(table)+1)):
+        print(f"{str(i) + ".":<3} {value}")
 
 if __name__ == "__main__":
     league = "bl1"
     season = "2025"
 
-    table_match_day_x(league,season,34)
+    print_table(table_of_matchday(league, season, 34))
